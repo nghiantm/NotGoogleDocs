@@ -1,0 +1,14 @@
+{
+  "name": "collab-editor",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "packageManager": "bun@1.1.0",
+  "scripts": {
+    "build": "turbo run build",
+    "test":  "turbo run test"
+  },
+  "devDependencies": {
+    "turbo": "latest",
+    "typescript": "^5.4.0"
+  }
+}

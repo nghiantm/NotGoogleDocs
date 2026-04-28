@@ -1,0 +1,17 @@
+{
+  "name": "@collab/server",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@collab/crdt": "workspace:*",
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/bun": "latest"
+  }
+}

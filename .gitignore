@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+
+# Environment files
+.env
+.env.local
+.env.production
+packages/server/.env
+packages/client/.env.local
+packages/client/.env.production
+
+# Turbo cache
+.turbo/
+
+# Bun
+*.bun
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+ARCHITECTURE.md
+CURRENT_TASK.md
+IMPLEMENTATION_PLAN.md
+TASK_LOG.md
