@@ -2,7 +2,7 @@
 
 A real-time collaborative plain-text editor. Multiple users edit the same document simultaneously with guaranteed convergence and no data loss. The conflict-resolution engine (Sequence CRDT / RGA variant) is implemented from scratch — no y-js or similar libraries.
 
-**[Live Demo →](https://your-vercel-url.vercel.app)** *(update after deploy)*
+**[Live Demo →](https://notgoogledocs.vercel.app)**
 
 ---
 
@@ -59,7 +59,7 @@ Measured against a Supabase PostgreSQL instance with 10,000 ops and `COMPACTION_
 | Server | Bun, built-in WebSocket (`Bun.serve`) |
 | Client | React 19, Vite 8, TypeScript |
 | Database | PostgreSQL via Supabase (JSONB snapshots, append-only op log) |
-| Server deploy | Fly.io |
+| Server deploy | Render |
 | Client deploy | Vercel |
 | Monorepo | Turborepo + Bun workspaces |
 
