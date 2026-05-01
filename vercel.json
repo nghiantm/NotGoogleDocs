@@ -1,5 +1,5 @@
 {
-  "buildCommand": "bun --cwd packages/client run build",
+  "buildCommand": "bunx turbo build --filter=@collab/client",
   "installCommand": "bun install",
   "outputDirectory": "packages/client/dist",
   "framework": null,
