@@ -6,13 +6,15 @@ node_modules/
 dist/
 **/dist/
 
-# Environment files
+# Environment files — only .env.example files are committed
 .env
 .env.local
+.env.development
 .env.production
-packages/server/.env
-packages/client/.env.local
-packages/client/.env.production
+**/.env
+**/.env.local
+**/.env.development
+**/.env.production
 
 # Turbo cache
 .turbo/

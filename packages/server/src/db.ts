@@ -36,6 +36,8 @@ export class Database {
     this.sql = postgres(process.env.DATABASE_URL, {
       max: 10,
       types: { bigint: postgres.BigInt },
+      // @ts-ignore — valid runtime option for forcing IPv4 in WSL, not in typedefs
+      family: 4,
     })
   }
 
