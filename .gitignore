@@ -34,7 +34,5 @@ Thumbs.db
 
 # Claude Code
 .claude/
-ARCHITECTURE.md
 CURRENT_TASK.md
-IMPLEMENTATION_PLAN.md
 TASK_LOG.md
