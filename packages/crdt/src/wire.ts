@@ -8,6 +8,7 @@ export interface WireCharId {
 export interface WireChar {
   id: WireCharId
   value: string | null
+  encryptedValue: string | null
   leftId: WireCharId | null
   rightId: WireCharId | null
   isDeleted: boolean
@@ -40,6 +41,7 @@ export function charToWire(c: Char): WireChar {
   return {
     id: charIdToWire(c.id),
     value: c.value,
+    encryptedValue: c.encryptedValue,
     leftId: c.leftId ? charIdToWire(c.leftId) : null,
     rightId: c.rightId ? charIdToWire(c.rightId) : null,
     isDeleted: c.isDeleted
@@ -50,6 +52,7 @@ export function charFromWire(wire: WireChar): Char {
   return {
     id: charIdFromWire(wire.id),
     value: wire.value,
+    encryptedValue: wire.encryptedValue,
     leftId: wire.leftId ? charIdFromWire(wire.leftId) : null,
     rightId: wire.rightId ? charIdFromWire(wire.rightId) : null,
     isDeleted: wire.isDeleted

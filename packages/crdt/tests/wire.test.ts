@@ -8,6 +8,7 @@ describe('toWire / fromWire — Operation', () => {
     char: {
       id: { clientId: 'c1', clock: 5n },
       value: 'a',
+      encryptedValue: null,
       leftId: { clientId: 'c1', clock: 4n },
       rightId: null,
       isDeleted: false
@@ -64,6 +65,7 @@ describe('toWireDoc / fromWireDoc', () => {
         {
           id: { clientId: 'c1', clock: 1n },
           value: 'h',
+          encryptedValue: null,
           leftId: null,
           rightId: null,
           isDeleted: false
@@ -71,6 +73,7 @@ describe('toWireDoc / fromWireDoc', () => {
         {
           id: { clientId: 'c1', clock: 2n },
           value: 'i',
+          encryptedValue: null,
           leftId: { clientId: 'c1', clock: 1n },
           rightId: null,
           isDeleted: false

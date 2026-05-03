@@ -863,3 +863,355 @@ Deploy server to Fly.io, deploy client to Vercel, verify live, write README.
 - Custom domain
 - CI/CD
 - Tombstone GC
+
+---
+
+## Milestone 16 — Encryption Primitives in CRDT Package
+
+### Objective
+Add Web Crypto API wrappers as a pure-functional module in `packages/crdt`. KDF, encrypt, decrypt, verifier — fully tested in isolation. No UI, no server, no schema changes yet. Existing 33 tests must continue to pass with no modifications.
+
+### Deliverables
+- `packages/crdt/src/crypto.ts` — KDF, encrypt, decrypt, verifier functions
+- `packages/crdt/src/crypto-types.ts` — `EncryptionVersion`, `WireEncryptedChar` if needed (probably not — `WireChar` already extended in this milestone)
+- `packages/crdt/tests/crypto.test.ts` — round-trip, deterministic nonce, verifier, wrong-password tests
+- Updated `packages/crdt/src/types.ts` — add `encryptedValue: string | null` to `Char`, add `EncryptionVersion` and `DocumentMetadata` types
+- Updated `packages/crdt/src/wire.ts` — add `encryptedValue` field to `WireChar`, update `toWire`/`fromWire`/`toWireDoc`/`fromWireDoc` to pass it through
+
+### Tasks
+- Implement `crypto.ts` with these exported functions:
+  ```typescript
+  export async function deriveMasterKey(
+    password: string,
+    salt: Uint8Array,
+    iterations: number
+  ): Promise<CryptoKey>
+
+  export async function deriveSubKey(
+    masterKey: CryptoKey,
+    purpose: 'op-encryption' | 'verifier' | 'snapshot-encryption'
+  ): Promise<CryptoKey>
+
+  export async function encryptValue(
+    value: string,
+    opKey: CryptoKey,
+    charId: CharId
+  ): Promise<string>  // base64
+
+  export async function decryptValue(
+    ciphertext: string,
+    opKey: CryptoKey,
+    charId: CharId
+  ): Promise<string>
+
+  export async function createVerifier(masterKey: CryptoKey): Promise<string>
+
+  export async function verifyPassword(
+    password: string,
+    salt: Uint8Array,
+    iterations: number,
+    expectedVerifier: string
+  ): Promise<{ valid: boolean; masterKey?: CryptoKey }>
+
+  export function generateSalt(): Uint8Array  // 32 bytes
+  ```
+- Use `crypto.subtle` from the global `crypto` object — works in both Bun (server-side tests) and browser
+- Constants in module:
+  - `KDF_ITERATIONS_DEFAULT = 600000`
+  - `SALT_BYTES = 32`
+  - `NONCE_BYTES = 12`
+  - `VERIFIER_CONSTANT = 'collab-editor-verifier-v1'`
+- Update `Char` type in `types.ts`:
+  ```typescript
+  export interface Char {
+    id: CharId
+    value: string | null
+    encryptedValue: string | null   // NEW
+    leftId: CharId | null
+    rightId: CharId | null
+    isDeleted: boolean
+  }
+  ```
+- Update `WireChar` correspondingly. `toWire` / `fromWire` / `charToWire` / `charFromWire` must pass `encryptedValue` through unchanged.
+- Update existing tests in `document.test.ts` and `wire.test.ts` to construct `Char` objects with `encryptedValue: null`. **No test logic changes — only object literals updated to include the new field.** This is the only modification to M1-M3 work.
+- Write `crypto.test.ts` with these test cases:
+  - `deriveMasterKey` produces deterministic output for same password+salt+iterations
+  - `encryptValue` followed by `decryptValue` round-trips correctly
+  - `encryptValue` with same value, opKey, charId produces identical ciphertext (deterministic nonce)
+  - `encryptValue` with different charId produces different ciphertext (different nonce)
+  - `decryptValue` with wrong key throws `OperationError`
+  - `createVerifier` produces deterministic output for same masterKey
+  - `verifyPassword` with correct password returns `{ valid: true, masterKey: <key> }`
+  - `verifyPassword` with wrong password returns `{ valid: false }` and does not throw
+  - `generateSalt` produces 32 unique random bytes (run twice, assert different)
+- Add new exports to `packages/crdt/src/index.ts`
+
+### Acceptance Criteria
+```bash
+turbo test   # all 33 existing tests + ~9 new crypto tests pass
+turbo build  # exit 0
+```
+- `crypto.ts` is fully self-contained — no imports from server or client
+- All existing tests still pass after `Char` type extension (the new `encryptedValue: null` field is the only diff)
+- Crypto tests run in under 30 seconds total (mostly PBKDF2 cost)
+- 600k PBKDF2 iterations complete in under 2 seconds on modern CPU
+
+### Out of Scope
+- UI components
+- Server changes
+- Schema changes
+- React context
+
+---
+
+## Milestone 17 — Database Schema Migration and Encrypted Op Persistence
+
+### Objective
+Apply backward-compatible schema migration. Server can persist and retrieve encrypted ops. Plaintext docs continue to work unchanged.
+
+### Deliverables
+- `packages/server/sql/migration_001_encryption.sql` — idempotent ALTER TABLE statements
+- `packages/server/sql/schema.sql` — updated for fresh installs to include encryption columns from the start
+- `packages/server/src/db.ts` — extended with new methods, existing methods unchanged
+- Updated `PersistedOp` type to include `encryptedValue: string | null`
+
+### Tasks
+- Write `migration_001_encryption.sql` with the additions documented in ARCHITECTURE.md "Schema Additions for Encryption"
+- Update `schema.sql` so a fresh install gets the same end state as `schema.sql + migration_001`
+- Add new methods to `Database` class in `db.ts`:
+  ```typescript
+  createEncryptedDocument(
+    slug: string,
+    salt: Uint8Array,
+    verifier: string,
+    kdfIterations: number
+  ): Promise<{ id: string; slug: string }>
+
+  getDocumentMetaBySlug(slug: string): Promise<DocumentMetadata | null>
+
+  getDocumentEncryptionVersion(docId: string): Promise<EncryptionVersion>
+
+  persistEncryptedOp(docId: string, op: Operation, seq: bigint): Promise<void>
+  ```
+- Modify `persistOp` (existing method) to route based on `documents.encryption_version`:
+  - If version 0: write to `char_value` column (current behavior)
+  - If version 1: write to `encrypted_value` column, leave `char_value` NULL
+- Modify `getAllOps`, `getOpsSince`, `getOpsPage` to populate `encryptedValue` field when reading rows where it's non-null
+- Update `PersistedOp` type to include `encryptedValue: string | null`
+- Slug uniqueness: `createEncryptedDocument` catches `unique_violation` on slug column and returns a typed error result `{ error: 'slug_taken' }` instead of throwing
+
+### Acceptance Criteria
+- Migration applies cleanly to existing production DB:
+  ```bash
+  psql $DATABASE_URL -f packages/server/sql/migration_001_encryption.sql  # exits 0
+  psql $DATABASE_URL -f packages/server/sql/migration_001_encryption.sql  # exits 0 again (idempotency)
+  ```
+- Existing plaintext document loads continue to return correct data — verify by curling production API for an existing M1-15 document
+- New encrypted document insert: `createEncryptedDocument(slug, ...)` succeeds, `getDocumentMetaBySlug(slug)` returns the metadata
+- Duplicate slug returns `{ error: 'slug_taken' }` not a thrown exception
+- TypeScript compiles cleanly: `cd packages/server && bun tsc --noEmit` exits 0
+
+### Out of Scope
+- WebSocket protocol changes (Milestone 18)
+- Client encryption logic (Milestone 19)
+- Compaction changes (Milestone 18)
+
+---
+
+## Milestone 18 — Server Endpoints, Protocol Versioning, Compaction Update
+
+### Objective
+New REST endpoints for slug-based document creation and metadata fetch. WebSocket INIT message includes `encryptionVersion`. Compaction operates on encrypted ops as opaque blobs.
+
+### Deliverables
+- `packages/server/src/index.ts` — new endpoints `GET /docs/:slug/meta`, `POST /docs/encrypted`
+- `packages/server/src/loader.ts` — `load()` returns `encryptionVersion` field
+- `packages/server/src/compaction.ts` — verified to work on encrypted ops without modification (CRDT structural fields are plaintext)
+
+### Tasks
+- Implement `GET /docs/:slug/meta`:
+  - Path param: slug
+  - Returns 200 with `{ exists: true, salt: base64, verifier, kdfIterations, encryptionVersion, slug, id }` if slug exists
+  - Returns 200 with `{ exists: false }` if slug does not exist (NOT 404 — distinguishing slug-doesnt-exist from server-error matters for the client UX)
+  - Validate slug format: `[a-zA-Z0-9-]{1,64}`. Invalid format returns 400.
+- Implement `POST /docs/encrypted`:
+  - Body: `{ slug, salt, verifier, kdfIterations, encryptionVersion: 1 }`
+  - Calls `db.createEncryptedDocument`
+  - Returns 201 with `{ id, slug }` on success
+  - Returns 409 with `{ error: 'slug_taken' }` on conflict
+  - Returns 400 on invalid slug format or missing fields
+- Update `loader.load()` to:
+  - Read `documents.encryption_version` once
+  - Include `encryptionVersion` in the returned shape
+  - Pass through `encrypted_value` from ops untransformed
+- Update INIT WebSocket message to include `encryptionVersion: 0 | 1` field
+- Verify `compaction.ts` works without modification:
+  - The `Document.integrate(char)` call only inspects `char.id`, `char.leftId`, `char.rightId`, `char.isDeleted`
+  - It never touches `char.value` or `char.encryptedValue`
+  - Snapshot serialization passes both fields through `toWireDoc`
+  - **No code changes to compaction.ts.** This is the proof that the encryption design preserves server-side compaction.
+- Add CORS preflight handling for new endpoints (OPTIONS returning 204)
+
+### Acceptance Criteria
+- `curl https://[server]/docs/nonexistent/meta` returns 200 with `{ exists: false }`
+- `curl -X POST https://[server]/docs/encrypted -d '{slug, salt, verifier, kdfIterations, encryptionVersion: 1}'` returns 201 with `{ id, slug }`
+- Same POST with same slug returns 409 with `{ error: 'slug_taken' }`
+- `GET /docs/:slug/meta` for that slug now returns 200 with full metadata
+- Compaction triggered on a doc with 100+ encrypted ops completes successfully (`log.info('compaction.complete', ...)` emitted)
+- Server-side decryption attempt is impossible by inspection — `grep -r "decrypt" packages/server/src/` finds no matches
+- All existing endpoints (`POST /docs`, `GET /docs/:docId/ops`, `GET /health`) work unchanged
+- `bun tsc --noEmit` in packages/server exits 0
+
+### Out of Scope
+- Client-side encryption / decryption
+- Password UI
+- Decryption cache
+
+---
+
+## Milestone 19 — Client Encryption Integration
+
+### Objective
+Client encrypts before sending, decrypts on receive. Password UI flow. Decryption cache to keep render performance reasonable. Op batching to reduce timing leakage.
+
+### Deliverables
+- `packages/client/src/crypto-context.tsx` — React context with derived keys (memory only)
+- `packages/client/src/PasswordPrompt.tsx` — password entry/creation UI
+- `packages/client/src/SlugPicker.tsx` — slug entry + availability check
+- `packages/client/src/crdt-manager.ts` — extended with optional `opKey`; encrypts/decrypts when present
+- `packages/client/src/use-collab.ts` — handles `encryptionVersion` from INIT, op batching
+- `packages/client/src/Editor.tsx` — async getText() path for encrypted docs
+- `packages/client/src/App.tsx` — slug + password gating before EditorApp renders
+
+### Tasks
+- `crypto-context.tsx`:
+  - React context exposing `{ opKey: CryptoKey | null, isUnlocked: boolean }`
+  - Provider takes `masterKey: CryptoKey | null` and derives `opKey` via HKDF on mount
+  - Keys are never persisted — destroyed when provider unmounts (page close, navigation)
+- `SlugPicker.tsx`:
+  - Renders when `pathname === '/'` or pathname is a UUID-format ID (legacy)
+  - User enters slug in input, submits
+  - Calls `GET /docs/:slug/meta`
+  - On `{ exists: false }`: shows "claim this slug" UI with password creation
+  - On `{ exists: true, encryptionVersion: 1 }`: shows password prompt to unlock existing doc
+  - On `{ exists: true, encryptionVersion: 0 }`: redirects to legacy plaintext flow (this case shouldn't normally occur but handle gracefully)
+  - On 400 (invalid slug): inline error message
+- `PasswordPrompt.tsx`:
+  - Two modes: `create` and `unlock`
+  - `create` mode: two password fields (password + confirm), warning text "If you forget this password, the document cannot be recovered."
+  - `unlock` mode: single password field
+  - On submit:
+    - Derives masterKey, computes verifier
+    - `create`: generates salt, calls `POST /docs/encrypted`
+    - `unlock`: constant-time compare verifier against fetched `meta.verifier`
+  - Error states: wrong password, slug taken, network error
+- Extend `CRDTManager`:
+  - Constructor accepts optional `opKey: CryptoKey`
+  - `localInsert` becomes async when `opKey` is set:
+    - `encryptedValue = await encryptValue(value, opKey, charId)`
+    - Set `char.encryptedValue = encryptedValue`, `char.value = null`
+  - `applyRemoteOp` is unchanged — it integrates ops structurally without touching value
+  - `getText` becomes async when `opKey` is set:
+    - For each char, look up decryption cache `Map<charId, string>`
+    - If miss: `await decryptValue(char.encryptedValue, opKey, char.id)`, store in cache
+    - If hit: use cached value
+  - Cache invalidation: on any mutation to a char (delete), remove its entry from cache
+  - Subscribe/notify mechanism unchanged — but Editor's subscription handler must `await` the new async `getText`
+- Extend `useCollab`:
+  - Accept `opKey: CryptoKey | null` parameter
+  - Pass `opKey` to CRDTManager constructor
+  - INIT message: read `encryptionVersion` field; if 1 and no opKey, abort with error (should not happen — UI flow gates this)
+  - **Op batching:** `localInsert` calls accumulate ops in a 100ms window before sending. Implementation: `batchTimerRef` set on first localInsert, fires `ws.send({ type: 'OP_BATCH', ops })`. Server-side: handle `OP_BATCH` by iterating ops with same flow as single OP.
+- Update `Editor.tsx`:
+  - Subscribe handler must handle async getText:
+    ```typescript
+    manager.subscribe(async () => {
+      const text = await manager.getText()
+      // existing imperative DOM update logic
+    })
+    ```
+  - For initial render, await getText before first paint
+- Update `App.tsx`:
+  - Wrap `EditorApp` in `<CryptoProvider masterKey={masterKey}>` when slug + password flow completes
+  - Show `<SlugPicker>` first, then `<PasswordPrompt>`, then `<EditorApp>`
+  - URL `https://[client]/[uuid]` (legacy UUID format): bypass slug/password, render EditorApp with no crypto context — plaintext mode preserved
+- Update server `index.ts` to handle `OP_BATCH` message type — iterate ops, persist each, broadcast each as individual `OP` to other clients
+
+### Acceptance Criteria
+- Two browser tabs at `/test-encrypted` with same password: real-time sync works, ciphertext visible in WebSocket frames in DevTools, plaintext visible in editor
+- Two tabs same slug different passwords: second tab sees verifier mismatch, cannot unlock
+- Reload tab: password prompt reappears (key not persisted)
+- Existing plaintext URL `https://notgoogledocs.vercel.app/[existing-uuid]` continues to work without password prompt
+- No ciphertext appears in browser console or React DevTools
+- Wrong password rejected client-side without sending password to server (verify in Network tab — no password in any request)
+- Op batching: typing 10 chars in <100ms produces a single `OP_BATCH` WebSocket frame, not 10 `OP` frames
+- `bun tsc --noEmit` in packages/client exits 0
+- `vite build` in packages/client exits 0
+
+### Out of Scope
+- Tombstone GC
+- Block-based encryption optimization
+- Key rotation
+- Mobile UI
+
+---
+
+## Milestone 20 — Encrypted Deploy and README Update
+
+### Objective
+Apply migration to production. Deploy updated server and client. Update README with encryption flow and threat model. Verify the end-to-end encrypted experience on the live URLs.
+
+### Deliverables
+- Production database migrated via `migration_001_encryption.sql`
+- Updated server deployed on Render
+- Updated client deployed on Vercel
+- `README.md` at repo root with encryption section, threat model summary, demo GIF
+- Live verification of encrypted document flow
+
+### Tasks
+- **Database migration:**
+  - Run `psql $PROD_DATABASE_URL -f packages/server/sql/migration_001_encryption.sql` against the production Supabase
+  - Verify with `\d documents` and `\d operations` that new columns exist
+  - Verify existing M1-15 documents still load: `curl https://notgoogledocs.onrender.com/docs/[existing-uuid]/ops?limit=5` returns expected data
+- **Server deploy (Render):**
+  - Push to main branch
+  - Render auto-deploys
+  - `curl https://notgoogledocs.onrender.com/health` returns `{"ok":true}`
+  - `curl https://notgoogledocs.onrender.com/docs/test-slug/meta` returns `{"exists": false}`
+- **Client deploy (Vercel):**
+  - Push to main branch
+  - Vercel auto-deploys
+  - Visit `https://notgoogledocs.vercel.app/test-encrypted-001` — should show SlugPicker → PasswordPrompt
+- **End-to-end verification:**
+  - Open two browser tabs at `https://notgoogledocs.vercel.app/test-encrypted-002`
+  - First tab: enter password, claim slug
+  - Second tab: enter same password
+  - Type in tab 1 → appears in tab 2
+  - Open Network tab in DevTools, confirm WebSocket frames contain `encrypted_value` (base64 blobs), no plaintext
+  - Open one tab with wrong password → rejected
+- **README updates:**
+  - Add "Encryption" section explaining slug + password flow
+  - Add "Threat Model" subsection — what's protected, what's not
+  - Add "Metadata Leakage" subsection — copy from ARCHITECTURE.md
+  - Add demo GIF showing: visit URL → password prompt → editor → ciphertext in DevTools
+  - Add new live URL examples (encrypted: `https://notgoogledocs.vercel.app/[slug]`, legacy: `https://notgoogledocs.vercel.app/[uuid]`)
+  - Add "Password Recovery" warning section: **"If you forget the password, the document cannot be recovered. There is no reset."**
+  - Update tech stack table to include "Web Crypto API (PBKDF2, AES-256-GCM, HKDF, HMAC-SHA256)"
+- **Verify legacy compatibility one more time:**
+  - Existing M1-15 plaintext URLs work without password prompt
+  - Switching between legacy and encrypted URL works without browser refresh oddities
+
+### Acceptance Criteria
+- Migration applied to production with no downtime
+- `https://notgoogledocs.onrender.com/health` → `{"ok":true}`
+- `https://notgoogledocs.vercel.app/[new-slug]` → SlugPicker → password creation → editor
+- Two tabs with same slug + password: real-time encrypted sync verified in DevTools
+- Wrong password rejected client-side
+- Existing plaintext URLs still work
+- README contains: encryption section, threat model, metadata leakage, password warning, demo GIF, updated tech stack
+
+### Out of Scope
+- Custom domain
+- Multi-region deploy
+- Operational monitoring / alerting
+- CI/CD pipeline

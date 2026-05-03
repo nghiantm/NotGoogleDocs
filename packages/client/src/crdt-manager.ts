@@ -57,6 +57,7 @@ export class CRDTManager {
     const charForOp = char ?? {
       id: { clientId: this.clientId, clock: this.lamportClock },
       value: null,
+      encryptedValue: null,
       leftId: null,
       rightId: null,
       isDeleted: true,

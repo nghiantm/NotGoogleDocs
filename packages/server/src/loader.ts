@@ -12,6 +12,7 @@ function persistedOpToWire(op: PersistedOp, docId: string): WireOperation {
     char: {
       id: wireIdFromString(op.charId),
       value: op.charValue,
+      encryptedValue: null,
       leftId: op.leftId ? wireIdFromString(op.leftId) : null,
       rightId: op.rightId ? wireIdFromString(op.rightId) : null,
       isDeleted: op.isDeleted,

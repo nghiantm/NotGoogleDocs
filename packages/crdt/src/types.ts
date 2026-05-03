@@ -9,6 +9,7 @@ export interface CharId {
 export interface Char {
   id: CharId
   value: string | null
+  encryptedValue: string | null
   leftId: CharId | null
   rightId: CharId | null
   isDeleted: boolean
@@ -33,4 +34,15 @@ export interface CursorState {
   charId: string | null
   color: string
   name: string
+}
+
+export type EncryptionVersion = 0 | 1
+
+export interface DocumentMetadata {
+  slug: string
+  salt: string
+  kdfIterations: number
+  verifier: string
+  encryptionVersion: EncryptionVersion
+  createdAt: string
 }

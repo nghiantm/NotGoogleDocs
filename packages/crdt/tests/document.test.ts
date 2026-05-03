@@ -165,6 +165,7 @@ describe('Document', () => {
         id: { clientId: c.id.clientId, clock: BigInt(c.id.clock) },
         leftId: c.leftId ? { clientId: c.leftId.clientId, clock: BigInt(c.leftId.clock) } : null,
         rightId: c.rightId ? { clientId: c.rightId.clientId, clock: BigInt(c.rightId.clock) } : null,
+        encryptedValue: c.encryptedValue ?? null,
       })),
     }
 

@@ -20,6 +20,7 @@ export async function maybeCompact(docId: string, db: Database): Promise<void> {
       const char: Char = {
         id: stringToCharId(op.charId),
         value: op.charValue,
+        encryptedValue: null,
         leftId: op.leftId ? stringToCharId(op.leftId) : null,
         rightId: op.rightId ? stringToCharId(op.rightId) : null,
         isDeleted: op.isDeleted,

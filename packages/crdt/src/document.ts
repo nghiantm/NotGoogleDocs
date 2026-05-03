@@ -15,6 +15,7 @@ export class Document {
     const char: Char = {
       id: { clientId, clock },
       value,
+      encryptedValue: null,
       leftId: afterId === Document.START_ID ? null : stringToCharId(afterId),
       rightId: nextKey === Document.END_ID ? null : stringToCharId(nextKey),
       isDeleted: false,
