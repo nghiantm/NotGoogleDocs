@@ -1,9 +1,14 @@
 -- Idempotent schema — safe to run multiple times
 
 CREATE TABLE IF NOT EXISTS documents (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  title      VARCHAR NOT NULL DEFAULT 'Untitled',
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title              VARCHAR NOT NULL DEFAULT 'Untitled',
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  slug               VARCHAR(64) UNIQUE,
+  salt               BYTEA,
+  kdf_iterations     INTEGER DEFAULT 600000,
+  verifier           TEXT,
+  encryption_version SMALLINT DEFAULT 0 NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS doc_sequences (
@@ -19,11 +24,12 @@ CREATE TABLE IF NOT EXISTS operations (
   lamport_clock BIGINT NOT NULL,
   op_type       VARCHAR NOT NULL,
   char_id       VARCHAR NOT NULL,
-  char_value    CHAR(1),
-  left_id       VARCHAR,
-  right_id      VARCHAR,
-  is_deleted    BOOLEAN NOT NULL DEFAULT false,
-  wall_clock    BIGINT NOT NULL,
+  char_value       CHAR(1),
+  left_id          VARCHAR,
+  right_id         VARCHAR,
+  is_deleted       BOOLEAN NOT NULL DEFAULT false,
+  wall_clock       BIGINT NOT NULL,
+  encrypted_value  TEXT,
   UNIQUE (doc_id, seq)
 );
 
@@ -44,6 +50,8 @@ CREATE TABLE IF NOT EXISTS snapshots (
 
 CREATE INDEX IF NOT EXISTS snapshots_doc_seq_desc
   ON snapshots (doc_id, snapshot_seq DESC);
+
+CREATE INDEX IF NOT EXISTS idx_documents_slug ON documents(slug) WHERE slug IS NOT NULL;
 
 CREATE OR REPLACE FUNCTION next_seq(p_doc_id UUID)
 RETURNS BIGINT
