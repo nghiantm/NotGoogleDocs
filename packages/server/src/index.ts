@@ -61,6 +61,35 @@ const server = Bun.serve<WSData>({
       return jsonResponse(wireOps)
     }
 
+    const slugMetaMatch = url.pathname.match(/^\/docs\/([^/]+)\/meta$/)
+    if (method === 'GET' && slugMetaMatch) {
+      const slug = slugMetaMatch[1]
+      if (!/^[a-zA-Z0-9-]{1,64}$/.test(slug)) {
+        return jsonResponse({ error: 'invalid_slug' }, 400)
+      }
+      const meta = await db.getDocumentMetaBySlug(slug)
+      if (!meta) return jsonResponse({ exists: false })
+      return jsonResponse({ exists: true, ...meta })
+    }
+
+    if (method === 'POST' && url.pathname === '/docs/encrypted') {
+      const body = await req.json() as Record<string, unknown>
+      const { slug, salt: saltBase64, verifier, kdfIterations, encryptionVersion } = body
+      if (
+        typeof slug !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(slug) ||
+        typeof saltBase64 !== 'string' ||
+        typeof verifier !== 'string' ||
+        typeof kdfIterations !== 'number' ||
+        encryptionVersion !== 1
+      ) {
+        return jsonResponse({ error: 'invalid_request' }, 400)
+      }
+      const salt = Uint8Array.from(Buffer.from(saltBase64, 'base64'))
+      const result = await db.createEncryptedDocument(slug, salt, verifier, kdfIterations)
+      if ('error' in result) return jsonResponse({ error: 'slug_taken' }, 409)
+      return jsonResponse(result, 201)
+    }
+
     return new Response('Not Found', { status: 404, headers: corsHeaders() })
   },
 

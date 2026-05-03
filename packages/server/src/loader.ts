@@ -1,4 +1,4 @@
-import type { WireOperation, WireSerializedDoc, WireCharId } from '@collab/crdt'
+import type { WireOperation, WireSerializedDoc, WireCharId, EncryptionVersion } from '@collab/crdt'
 import type { Database, PersistedOp } from './db.js'
 
 function wireIdFromString(s: string): WireCharId {
@@ -12,7 +12,7 @@ function persistedOpToWire(op: PersistedOp, docId: string): WireOperation {
     char: {
       id: wireIdFromString(op.charId),
       value: op.charValue,
-      encryptedValue: null,
+      encryptedValue: op.encryptedValue,
       leftId: op.leftId ? wireIdFromString(op.leftId) : null,
       rightId: op.rightId ? wireIdFromString(op.rightId) : null,
       isDeleted: op.isDeleted,
@@ -29,8 +29,11 @@ export async function load(
   docId: string,
   db: Database,
   clientVectorClock?: Record<string, string>
-): Promise<{ snapshot: WireSerializedDoc | null; ops: WireOperation[]; snapshotSeq: string }> {
-  const snapshot = await db.getLatestSnapshot(docId)
+): Promise<{ snapshot: WireSerializedDoc | null; ops: WireOperation[]; snapshotSeq: string; encryptionVersion: EncryptionVersion }> {
+  const [snapshot, encryptionVersion] = await Promise.all([
+    db.getLatestSnapshot(docId),
+    db.getDocumentEncryptionVersion(docId),
+  ])
   const snapshotSeq = snapshot?.snapshotSeq ?? 0n
   const persistedOps = await db.getOpsSince(docId, snapshotSeq)
 
@@ -47,6 +50,7 @@ export async function load(
     snapshot: snapshot?.state ?? null,
     ops,
     snapshotSeq: snapshotSeq.toString(),
+    encryptionVersion,
   }
 }
 
