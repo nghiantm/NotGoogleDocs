@@ -10,18 +10,23 @@ type WSData = { docId: string; clientId: string }
 const db = new Database()
 const rooms = new Rooms()
 
-function corsHeaders() {
+const allowedOrigins = (process.env.CORS_ORIGIN ?? '*').split(',').map(o => o.trim())
+
+function corsHeaders(origin: string | null) {
+  const allowOrigin = allowedOrigins.includes('*')
+    ? '*'
+    : origin && allowedOrigins.includes(origin) ? origin : allowedOrigins[0]
   return {
-    'Access-Control-Allow-Origin': process.env.CORS_ORIGIN ?? '*',
+    'Access-Control-Allow-Origin': allowOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   }
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, origin: string | null = null): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders(), 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(origin), 'Content-Type': 'application/json' },
   })
 }
 
@@ -31,9 +36,10 @@ const server = Bun.serve<WSData>({
   async fetch(req, server) {
     const url = new URL(req.url)
     const { method } = req
+    const origin = req.headers.get('origin')
 
     if (method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders() })
+      return new Response(null, { status: 204, headers: corsHeaders(origin) })
     }
 
     if (url.pathname.startsWith('/doc/')) {
@@ -44,12 +50,12 @@ const server = Bun.serve<WSData>({
     }
 
     if (method === 'GET' && url.pathname === '/health') {
-      return jsonResponse({ ok: true })
+      return jsonResponse({ ok: true }, 200, origin)
     }
 
     if (method === 'POST' && url.pathname === '/docs') {
       const doc = await db.createDocument()
-      return jsonResponse(doc, 201)
+      return jsonResponse(doc, 201, origin)
     }
 
     const opsMatch = url.pathname.match(/^\/docs\/([^/]+)\/ops$/)
@@ -58,18 +64,18 @@ const server = Bun.serve<WSData>({
       const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '1000'), 5000)
       const offset = parseInt(url.searchParams.get('offset') ?? '0')
       const wireOps = await loadPage(docId, db, limit, offset)
-      return jsonResponse(wireOps)
+      return jsonResponse(wireOps, 200, origin)
     }
 
     const slugMetaMatch = url.pathname.match(/^\/docs\/([^/]+)\/meta$/)
     if (method === 'GET' && slugMetaMatch) {
       const slug = slugMetaMatch[1]
       if (!/^[a-zA-Z0-9-]{1,64}$/.test(slug)) {
-        return jsonResponse({ error: 'invalid_slug' }, 400)
+        return jsonResponse({ error: 'invalid_slug' }, 400, origin)
       }
       const meta = await db.getDocumentMetaBySlug(slug)
-      if (!meta) return jsonResponse({ exists: false })
-      return jsonResponse({ exists: true, ...meta })
+      if (!meta) return jsonResponse({ exists: false }, 200, origin)
+      return jsonResponse({ exists: true, ...meta }, 200, origin)
     }
 
     if (method === 'POST' && url.pathname === '/docs/encrypted') {
@@ -82,15 +88,15 @@ const server = Bun.serve<WSData>({
         typeof kdfIterations !== 'number' ||
         encryptionVersion !== 1
       ) {
-        return jsonResponse({ error: 'invalid_request' }, 400)
+        return jsonResponse({ error: 'invalid_request' }, 400, origin)
       }
       const salt = Uint8Array.from(Buffer.from(saltBase64, 'base64'))
       const result = await db.createEncryptedDocument(slug, salt, verifier, kdfIterations)
-      if ('error' in result) return jsonResponse({ error: 'slug_taken' }, 409)
-      return jsonResponse(result, 201)
+      if ('error' in result) return jsonResponse({ error: 'slug_taken' }, 409, origin)
+      return jsonResponse(result, 201, origin)
     }
 
-    return new Response('Not Found', { status: 404, headers: corsHeaders() })
+    return new Response('Not Found', { status: 404, headers: corsHeaders(origin) })
   },
 
   websocket: {
@@ -119,6 +125,17 @@ const server = Bun.serve<WSData>({
           log.info('op.persisted', { docId, clientId, seq: seq.toString() })
           rooms.broadcast(docId, clientId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
           ws.send(JSON.stringify({ type: 'ACK', seq: seq.toString() }))
+          setImmediate(() => maybeCompact(docId, db))
+
+        } else if (msg.type === 'OP_BATCH') {
+          for (const wireOp of msg.ops as WireOperation[]) {
+            const op = fromWire(wireOp)
+            const seq = await db.nextSeq(docId)
+            await db.persistOp(docId, op, seq)
+            log.info('op.persisted', { docId, clientId, seq: seq.toString() })
+            rooms.broadcast(docId, clientId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
+            ws.send(JSON.stringify({ type: 'ACK', seq: seq.toString() }))
+          }
           setImmediate(() => maybeCompact(docId, db))
 
         } else if (msg.type === 'SYNC') {
