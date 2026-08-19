@@ -99,7 +99,7 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
     <div style={s.container}>
       <div style={s.card}>
         <h2 style={s.title}>NotGoogleDocs</h2>
-        <p style={s.subtitle}>Enter a document name to create or open it.</p>
+        <p style={s.subtitle}>Real-time collaborative notepad. Free, no ads, no login.</p>
         <form onSubmit={handleSubmit} style={s.form}>
           <div style={s.inputRow}>
             <span style={s.slash}>/</span>
@@ -119,6 +119,11 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
             {loading ? 'Checking…' : 'Open →'}
           </button>
         </form>
+        <p style={s.hint}>
+          Type any name to create or open that document — no account needed.
+          Set a password to encrypt it: we never see your password or your content,
+          and we can't recover it if you forget it.
+        </p>
       </div>
     </div>
   )
@@ -161,6 +166,7 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
   },
   error: { margin: 0, fontSize: 13, color: '#c9372c', fontWeight: 500 },
+  hint: { margin: '20px 0 0', fontSize: 12, lineHeight: 1.5, color: '#999' },
   button: {
     padding: '8px 16px',
     background: '#1a1a1a',
