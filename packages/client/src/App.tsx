@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react'
-import { HTTP_URL } from './config.js'
+import { useState } from 'react'
 import { useCollab } from './use-collab.js'
 import { CryptoProvider, useCryptoContext } from './crypto-context.js'
 import SlugPicker from './SlugPicker.js'
@@ -24,46 +23,20 @@ const STATUS_LABEL: Record<Status, string> = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-function getInitialPhase(): 'loading' | 'slug' {
+function getInitialPhase(): 'slug' | 'editor' {
   const path = window.location.pathname.slice(1)
-  if (!path || UUID_RE.test(path)) return 'loading'
+  if (path && UUID_RE.test(path)) return 'editor'
   return 'slug'
 }
 
 export default function App() {
-  const [phase, setPhase] = useState<'loading' | 'slug' | 'editor'>(getInitialPhase)
+  const [phase, setPhase] = useState<'slug' | 'editor'>(getInitialPhase)
   const [docId, setDocId] = useState<string | null>(() => {
     const path = window.location.pathname.slice(1)
-    if (path && UUID_RE.test(path)) return path
-    return null
+    return path && UUID_RE.test(path) ? path : null
   })
   const [masterKey, setMasterKey] = useState<CryptoKey | null>(null)
   const initialSlug = window.location.pathname.slice(1)
-
-  // Legacy / new plaintext doc flow
-  useEffect(() => {
-    if (phase !== 'loading') return
-    if (docId) {
-      setPhase('editor')
-      return
-    }
-    fetch(`${HTTP_URL}/docs`, { method: 'POST' })
-      .then(r => r.json() as Promise<{ id: string }>)
-      .then(data => {
-        window.history.replaceState({}, '', `/${data.id}`)
-        setDocId(data.id)
-        setPhase('editor')
-      })
-      .catch(err => console.error('Failed to create document:', err))
-  }, [phase, docId])
-
-  if (phase === 'loading') {
-    return (
-      <div style={loadingStyle}>
-        Creating document…
-      </div>
-    )
-  }
 
   if (phase === 'slug') {
     return (
@@ -153,14 +126,4 @@ function EditorApp({ docId }: { docId: string }) {
       <HistorySlider docId={docId} onHistoryChange={handleHistoryChange} />
     </div>
   )
-}
-
-const loadingStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  height: '100vh',
-  fontFamily: 'sans-serif',
-  color: '#888',
-  fontSize: 14,
 }
