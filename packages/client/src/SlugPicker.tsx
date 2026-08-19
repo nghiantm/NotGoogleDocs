@@ -99,6 +99,7 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
     <div style={s.container}>
       <div style={s.card}>
         <h2 style={s.title}>NotGoogleDocs</h2>
+        <p style={s.tagline}>Your text. Protected.</p>
         <p style={s.subtitle}>Real-time collaborative notepad. Free, no ads, no login.</p>
         <form onSubmit={handleSubmit} style={s.form}>
           <div style={s.inputRow}>
@@ -120,9 +121,10 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
           </button>
         </form>
         <p style={s.hint}>
-          Type any name to create or open that document — no account needed.
-          Set a password to encrypt it: we never see your password or your content,
-          and we can't recover it if you forget it.
+          Type any name to create or open that document — no account, no registration.
+          Set a password and your password never reaches the server; we only ever see
+          ciphertext, so we can't decrypt your text even if we wanted to. If you forget
+          the password, it's gone — there's no recovery.
         </p>
       </div>
     </div>
@@ -147,6 +149,7 @@ const s: Record<string, React.CSSProperties> = {
     boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
   },
   title: { margin: '0 0 6px', fontSize: 22, fontWeight: 700, color: '#1a1a1a' },
+  tagline: { margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#22a06b' },
   subtitle: { margin: '0 0 20px', fontSize: 13, color: '#888' },
   form: { display: 'flex', flexDirection: 'column', gap: 12 },
   inputRow: {
