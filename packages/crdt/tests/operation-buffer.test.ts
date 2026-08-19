@@ -16,6 +16,7 @@ function makeOp(clientId: string, clock: bigint, leftId: CharId | null = null): 
       leftId,
       rightId: null,
       isDeleted: false,
+      encryptedValue: null,
     },
     docId: 'doc1',
     clientId,
