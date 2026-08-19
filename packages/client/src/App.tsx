@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { HTTP_URL } from './config.js'
 import { useCollab } from './use-collab.js'
+import { CryptoProvider, useCryptoContext } from './crypto-context.js'
+import SlugPicker from './SlugPicker.js'
 import Editor from './Editor.js'
 import HistorySlider from './HistorySlider.js'
 
@@ -20,44 +22,77 @@ const STATUS_LABEL: Record<Status, string> = {
   offline: 'Offline',
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function getInitialPhase(): 'loading' | 'slug' {
+  const path = window.location.pathname.slice(1)
+  if (!path || UUID_RE.test(path)) return 'loading'
+  return 'slug'
+}
+
 export default function App() {
+  const [phase, setPhase] = useState<'loading' | 'slug' | 'editor'>(getInitialPhase)
   const [docId, setDocId] = useState<string | null>(() => {
     const path = window.location.pathname.slice(1)
-    return path || null
+    if (path && UUID_RE.test(path)) return path
+    return null
   })
+  const [masterKey, setMasterKey] = useState<CryptoKey | null>(null)
+  const initialSlug = window.location.pathname.slice(1)
 
+  // Legacy / new plaintext doc flow
   useEffect(() => {
-    if (docId) return
+    if (phase !== 'loading') return
+    if (docId) {
+      setPhase('editor')
+      return
+    }
     fetch(`${HTTP_URL}/docs`, { method: 'POST' })
       .then(r => r.json() as Promise<{ id: string }>)
       .then(data => {
         window.history.replaceState({}, '', `/${data.id}`)
         setDocId(data.id)
+        setPhase('editor')
       })
       .catch(err => console.error('Failed to create document:', err))
-  }, [docId])
+  }, [phase, docId])
 
-  if (!docId) {
+  if (phase === 'loading') {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        height: '100vh',
-        fontFamily: 'sans-serif',
-        color: '#888',
-        fontSize: 14,
-      }}>
+      <div style={loadingStyle}>
         Creating document…
       </div>
     )
   }
 
-  return <EditorApp docId={docId} />
+  if (phase === 'slug') {
+    return (
+      <SlugPicker
+        initialSlug={initialSlug}
+        onComplete={(slug, key) => {
+          window.history.replaceState({}, '', `/${slug}`)
+          setDocId(slug)
+          setMasterKey(key)
+          setPhase('editor')
+        }}
+        onLegacy={id => {
+          setDocId(id)
+          setPhase('editor')
+        }}
+      />
+    )
+  }
+
+  return (
+    <CryptoProvider masterKey={masterKey}>
+      <EditorApp docId={docId!} />
+    </CryptoProvider>
+  )
 }
 
 function EditorApp({ docId }: { docId: string }) {
-  const { manager, cursors, status } = useCollab(docId)
+  const { opKey } = useCryptoContext()
+  const { manager, cursors, status } = useCollab(docId, opKey)
   const [isHistoryView, setIsHistoryView] = useState(false)
   const [previewText, setPreviewText] = useState<string | undefined>(undefined)
 
@@ -81,6 +116,11 @@ function EditorApp({ docId }: { docId: string }) {
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.3px', color: '#1a1a1a' }}>
           NotGoogleDocs
         </span>
+        {opKey && (
+          <span style={{ marginLeft: 8, fontSize: 11, color: '#22a06b', fontWeight: 600 }}>
+            🔒 encrypted
+          </span>
+        )}
         <span style={{
           marginLeft: 'auto',
           display: 'flex',
@@ -113,4 +153,14 @@ function EditorApp({ docId }: { docId: string }) {
       <HistorySlider docId={docId} onHistoryChange={handleHistoryChange} />
     </div>
   )
+}
+
+const loadingStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  height: '100vh',
+  fontFamily: 'sans-serif',
+  color: '#888',
+  fontSize: 14,
 }

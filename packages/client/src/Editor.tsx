@@ -49,7 +49,6 @@ function setCaretOffset(el: HTMLElement, offset: number): void {
     remaining -= text.length
   }
 
-  // Offset was past end — place cursor at end of last text node
   if (lastNode) {
     const range = document.createRange()
     range.setStart(lastNode, lastNode.length)
@@ -72,7 +71,7 @@ function computeCursorPositions(
   for (const [clientId, cursor] of Object.entries(cursors)) {
     if (!cursor.charId) continue
     const index = manager.getIndexOfCharId(cursor.charId)
-    const targetIndex = index >= 0 ? index : manager.getText().length
+    const targetIndex = index >= 0 ? index : manager.getTextSync().length
 
     const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT)
     let remaining = targetIndex
@@ -128,21 +127,25 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
   const [cursorPositions, setCursorPositions] = useState<Record<string, CursorPos>>({})
   const [tick, setTick] = useState(0)
 
-  // Keep cursorsRef current for use inside the manager subscription closure
   useEffect(() => {
     cursorsRef.current = cursors
   }, [cursors])
 
-  // Imperative DOM update — subscribed to manager, overridden by previewText in history view
+  // Imperative DOM update — async to support encrypted getText()
   useEffect(() => {
     const div = divRef.current!
-    div.textContent = previewText !== undefined ? previewText : manager.getText()
 
-    return manager.subscribe(() => {
+    if (previewText !== undefined) {
+      div.textContent = previewText
+    } else {
+      void manager.getText().then(text => { div.textContent = text })
+    }
+
+    return manager.subscribe(async () => {
       if (previewText !== undefined) return
       const pending = pendingCaretRef.current
       pendingCaretRef.current = null
-      const text = manager.getText()
+      const text = await manager.getText()
       const hasFocus = document.activeElement === div
 
       if (pending !== null) {
@@ -158,7 +161,6 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
     })
   }, [manager, previewText])
 
-  // Cursor positions — recomputed after text changes (tick) or cursor data changes
   useLayoutEffect(() => {
     const wrapper = wrapperRef.current
     const div = divRef.current
@@ -166,12 +168,12 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
     setCursorPositions(computeCursorPositions(wrapper, div, manager, cursors))
   }, [cursors, manager, tick])
 
-  // beforeInput — all text mutations go through here
+  // beforeInput — all text mutations route through here
   useEffect(() => {
     if (readOnly) return
     const div = divRef.current!
 
-    const handleBeforeInput = (e: Event) => {
+    const handleBeforeInput = async (e: Event) => {
       const event = e as InputEvent
       event.preventDefault()
       if (isComposing.current) return
@@ -185,7 +187,7 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
           for (const ch of event.data) {
             const afterId = manager.getCharIdAtIndex(pos - 1)
             pendingCaretRef.current = pos + 1
-            manager.localInsert(afterId, ch)
+            await manager.localInsert(afterId, ch)
             pos++
           }
           break
@@ -194,21 +196,21 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
           if (offset === 0) break
           const charId = manager.getCharIdAtIndex(offset - 1)
           pendingCaretRef.current = offset - 1
-          manager.localDelete(charId)
+          await manager.localDelete(charId)
           break
         }
         case 'deleteContentForward': {
-          if (offset >= manager.getText().length) break
+          if (offset >= manager.getTextSync().length) break
           const charId = manager.getCharIdAtIndex(offset)
           pendingCaretRef.current = offset
-          manager.localDelete(charId)
+          await manager.localDelete(charId)
           break
         }
         case 'insertParagraph':
         case 'insertLineBreak': {
           const afterId = manager.getCharIdAtIndex(offset - 1)
           pendingCaretRef.current = offset + 1
-          manager.localInsert(afterId, '\n')
+          await manager.localInsert(afterId, '\n')
           break
         }
       }
@@ -228,26 +230,26 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
       compositionStartOffset.current = getCaretOffset(div)
     }
 
-    const handleCompositionEnd = (e: CompositionEvent) => {
+    const handleCompositionEnd = async (e: CompositionEvent) => {
       isComposing.current = false
       const composed = e.data
       if (!composed) return
-      // Reset browser IME changes; our CRDT is the source of truth
-      div.textContent = manager.getText()
+      div.textContent = manager.getTextSync()
       let pos = compositionStartOffset.current
       for (const ch of composed) {
         const afterId = manager.getCharIdAtIndex(pos - 1)
         pendingCaretRef.current = pos + 1
-        manager.localInsert(afterId, ch)
+        await manager.localInsert(afterId, ch)
         pos++
       }
     }
+    const compositionEndWrapper = (e: Event) => { void handleCompositionEnd(e as CompositionEvent) }
 
     div.addEventListener('compositionstart', handleCompositionStart)
-    div.addEventListener('compositionend', handleCompositionEnd as EventListener)
+    div.addEventListener('compositionend', compositionEndWrapper)
     return () => {
       div.removeEventListener('compositionstart', handleCompositionStart)
-      div.removeEventListener('compositionend', handleCompositionEnd as EventListener)
+      div.removeEventListener('compositionend', compositionEndWrapper)
     }
   }, [manager, readOnly])
 
@@ -287,7 +289,6 @@ export default function Editor({ manager, cursors, readOnly, previewText }: Prop
           color: '#1a1a1a',
         }}
       />
-      {/* Remote cursor overlays — React-managed, pointer-events disabled */}
       <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
         {Object.entries(cursorPositions).map(([clientId, pos]) => (
           <div

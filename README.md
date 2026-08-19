@@ -4,6 +4,9 @@ A real-time collaborative plain-text editor. Multiple users edit the same docume
 
 **[Live Demo →](https://notgoogledocs.vercel.app)**
 
+- Encrypted, password-protected doc: `https://notgoogledocs.vercel.app/[your-slug]`
+- Legacy plaintext doc: `https://notgoogledocs.vercel.app/[uuid]`
+
 ---
 
 <!-- Replace with a demo GIF: two browser tabs side-by-side, real-time sync and history slider visible -->
@@ -36,6 +39,36 @@ Background snapshot compaction keeps INIT payloads small: after every `COMPACTIO
 
 ---
 
+## Encryption
+
+Documents can optionally be end-to-end encrypted, inspired by [ProtectedText.com](https://www.protectedtext.com/): pick a URL slug, set a password, the server stores only ciphertext.
+
+**Flow:**
+1. Visit `/[slug]`. Unknown slug → password *creation* UI; existing slug → password *prompt*.
+2. Client derives a master key from the password via PBKDF2 (600k iterations), never sends the password itself.
+3. A verifier (HMAC over a constant string) is checked client-side against the server's stored verifier before unlocking.
+4. Each character's value is encrypted individually with AES-256-GCM (deterministic nonce derived from the character's CRDT id) before being sent over the WebSocket. CRDT structural fields (ids, tombstones) stay plaintext so the server can still order and compact operations.
+5. Keys live in memory only — reload the page, re-enter the password.
+
+Legacy documents (`/[uuid]`, created before encryption existed) are unaffected and continue to work with no password.
+
+### Threat Model
+
+**Protected against:** an honest-but-curious server operator, a stolen database snapshot, and network eavesdropping (defense-in-depth on top of TLS). In all three, document *content* stays unreadable.
+
+**Not protected against:** a malicious server serving modified JavaScript (inherent to all browser-based E2EE), compromised client devices, weak passwords, or traffic analysis correlating users across documents.
+
+### Metadata Leakage
+
+The server never sees character content, but it does see: that a document exists at a given slug, operation count and rough timing (mitigated by 100ms client-side op batching), number of distinct editors, approximate document length, and the structural op log needed to run the CRDT. None of this is hidden — see `ARCHITECTURE.md` for the full breakdown.
+
+> ⚠️ **Password Recovery: there is none.** If you forget the password, the document is permanently unreadable. No reset, no backdoor.
+
+<!-- Replace with a demo GIF: visit /[slug] → password prompt → editor → ciphertext visible in DevTools WS frames -->
+![Encrypted flow demo](docs/demo-encrypted.gif)
+
+---
+
 ## Benchmark Results
 
 Measured against a Supabase PostgreSQL instance with 10,000 ops and `COMPACTION_THRESHOLD=1`.
@@ -59,6 +92,7 @@ Measured against a Supabase PostgreSQL instance with 10,000 ops and `COMPACTION_
 | Server | Bun, built-in WebSocket (`Bun.serve`) |
 | Client | React 19, Vite 8, TypeScript |
 | Database | PostgreSQL via Supabase (JSONB snapshots, append-only op log) |
+| Encryption | Web Crypto API (PBKDF2, AES-256-GCM, HKDF, HMAC-SHA256) |
 | Server deploy | Render |
 | Client deploy | Vercel |
 | Monorepo | Turborepo + Bun workspaces |

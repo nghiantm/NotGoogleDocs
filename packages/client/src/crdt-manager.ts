@@ -5,6 +5,9 @@ import {
   charIdToString,
   bigIntMax,
   toWire,
+  encryptValue,
+  decryptValue,
+  type WireOperation,
   type Operation,
   type SerializedDoc,
   type CursorState,
@@ -18,8 +21,11 @@ export class CRDTManager {
   private docId: string
   private lamportClock: bigint = 0n
   private ws: WebSocket | null = null
-  private listeners: Set<() => void> = new Set()
+  private sendFn: ((wireOp: WireOperation) => void) | null = null
+  private listeners: Set<() => void | Promise<void>> = new Set()
   private cachedText: string | null = null
+  private opKey: CryptoKey | null = null
+  private decryptionCache: Map<string, string> = new Map()
 
   constructor(clientId: string, docId: string) {
     this.clientId = clientId
@@ -29,8 +35,46 @@ export class CRDTManager {
     this.buffer = new OperationBuffer()
   }
 
-  localInsert(afterCharId: string, value: string): Operation {
+  setOpKey(key: CryptoKey | null): void {
+    this.opKey = key
+    this.cachedText = null
+    this.decryptionCache.clear()
+    this.notify()
+  }
+
+  setSendFn(fn: ((wireOp: WireOperation) => void) | null): void {
+    this.sendFn = fn
+  }
+
+  async localInsert(afterCharId: string, value: string): Promise<Operation> {
     this.lamportClock++
+
+    if (this.opKey) {
+      // Encrypt before inserting so the char is never in the doc with plaintext value
+      const tempId = { clientId: this.clientId, clock: this.lamportClock }
+      const encrypted = await encryptValue(value, this.opKey, tempId)
+
+      const char = this.doc.insert(afterCharId, value, this.clientId, this.lamportClock)
+      // Nullify plaintext immediately after structural insertion
+      char.value = null
+      char.encryptedValue = encrypted
+      this.decryptionCache.set(charIdToString(char.id), value)
+      this.cachedText = null
+      this.vc.update(this.clientId, this.lamportClock)
+
+      const op: Operation = {
+        type: 'insert',
+        char,
+        docId: this.docId,
+        clientId: this.clientId,
+        lamportClock: this.lamportClock,
+        wallClock: Date.now(),
+      }
+      this.sendFn?.(toWire(op))
+      this.notify()
+      return op
+    }
+
     const char = this.doc.insert(afterCharId, value, this.clientId, this.lamportClock)
     this.cachedText = null
     this.vc.update(this.clientId, this.lamportClock)
@@ -42,18 +86,18 @@ export class CRDTManager {
       lamportClock: this.lamportClock,
       wallClock: Date.now(),
     }
-    this.ws?.send(JSON.stringify({ type: 'OP', op: toWire(op) }))
+    this.sendFn?.(toWire(op))
     this.notify()
     return op
   }
 
-  localDelete(charId: string): Operation {
+  async localDelete(charId: string): Promise<Operation> {
     this.lamportClock++
     const char = this.doc.delete(charId)
     this.cachedText = null
+    this.decryptionCache.delete(charId)
     this.vc.update(this.clientId, this.lamportClock)
 
-    // Build a minimal Char for the delete op — value/leftId/rightId not needed for delete
     const charForOp = char ?? {
       id: { clientId: this.clientId, clock: this.lamportClock },
       value: null,
@@ -70,7 +114,7 @@ export class CRDTManager {
       lamportClock: this.lamportClock,
       wallClock: Date.now(),
     }
-    this.ws?.send(JSON.stringify({ type: 'OP', op: toWire(op) }))
+    this.sendFn?.(toWire(op))
     this.notify()
     return op
   }
@@ -90,7 +134,9 @@ export class CRDTManager {
     if (op.type === 'insert') {
       this.doc.integrate(op.char)
     } else {
-      this.doc.delete(charIdToString(op.char.id))
+      const key = charIdToString(op.char.id)
+      this.doc.delete(key)
+      this.decryptionCache.delete(key)
     }
     this.vc.update(op.clientId, op.lamportClock)
     this.cachedText = null
@@ -107,10 +153,39 @@ export class CRDTManager {
     this.notify()
   }
 
-  getText(): string {
+  async getText(): Promise<string> {
+    if (!this.opKey) {
+      if (this.cachedText !== null) return this.cachedText
+      this.cachedText = this.doc.getText()
+      return this.cachedText
+    }
+
     if (this.cachedText !== null) return this.cachedText
-    this.cachedText = this.doc.getText()
+
+    const { chars, order } = this.doc.serialize()
+    const charMap = new Map(chars.map(c => [charIdToString(c.id), c]))
+    const parts: string[] = []
+
+    for (const id of order) {
+      if (id === Document.START_ID || id === Document.END_ID) continue
+      const char = charMap.get(id)
+      if (!char || char.isDeleted) continue
+
+      let plaintext = this.decryptionCache.get(id)
+      if (plaintext === undefined) {
+        plaintext = await decryptValue(char.encryptedValue!, this.opKey, char.id)
+        this.decryptionCache.set(id, plaintext)
+      }
+      parts.push(plaintext)
+    }
+
+    this.cachedText = parts.join('')
     return this.cachedText
+  }
+
+  // Synchronous access to last-cached text — for event handlers that can't await
+  getTextSync(): string {
+    return this.cachedText ?? ''
   }
 
   getCharIdAtIndex(i: number): string {
@@ -125,7 +200,7 @@ export class CRDTManager {
     return this.vc.serialize()
   }
 
-  subscribe(fn: () => void): () => void {
+  subscribe(fn: () => void | Promise<void>): () => void {
     this.listeners.add(fn)
     return () => this.listeners.delete(fn)
   }
@@ -144,6 +219,9 @@ export class CRDTManager {
   }
 
   private notify(): void {
-    this.listeners.forEach(fn => fn())
+    this.listeners.forEach(fn => void fn())
   }
 }
+
+// Re-export so App.tsx can use CursorState without a separate import
+export type { CursorState }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { fromWire, fromWireDoc, type CursorState } from '@collab/crdt'
+import { fromWire, fromWireDoc, type WireOperation, type CursorState } from '@collab/crdt'
 import { WS_URL } from './config.js'
 import { CRDTManager } from './crdt-manager.js'
 
@@ -15,7 +15,10 @@ function getClientId(): string {
   return id
 }
 
-export function useCollab(docId: string): {
+export function useCollab(
+  docId: string,
+  opKey: CryptoKey | null = null,
+): {
   manager: CRDTManager
   cursors: Record<string, CursorState>
   status: Status
@@ -27,6 +30,13 @@ export function useCollab(docId: string): {
   }
   const manager = managerRef.current
 
+  // Propagate opKey changes into the manager
+  const prevOpKeyRef = useRef<CryptoKey | null>(null)
+  if (opKey !== prevOpKeyRef.current) {
+    prevOpKeyRef.current = opKey
+    manager.setOpKey(opKey)
+  }
+
   const [, forceRender] = useState(0)
   const [status, setStatus] = useState<Status>('connecting')
   const [cursors, setCursors] = useState<Record<string, CursorState>>({})
@@ -34,6 +44,33 @@ export function useCollab(docId: string): {
   const retryCount = useRef(0)
   const wsRef = useRef<WebSocket | null>(null)
   const unmounted = useRef(false)
+
+  // Op batching — accumulate for 100ms then send as OP_BATCH
+  const batchRef = useRef<WireOperation[]>([])
+  const batchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    manager.setSendFn((wireOp: WireOperation) => {
+      batchRef.current.push(wireOp)
+      if (!batchTimerRef.current) {
+        batchTimerRef.current = setTimeout(() => {
+          const ops = batchRef.current.splice(0)
+          batchTimerRef.current = null
+          const ws = wsRef.current
+          if (ops.length > 0 && ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'OP_BATCH', ops }))
+          }
+        }, 100)
+      }
+    })
+    return () => {
+      manager.setSendFn(null)
+      if (batchTimerRef.current) {
+        clearTimeout(batchTimerRef.current)
+        batchTimerRef.current = null
+      }
+    }
+  }, [manager])
 
   const connect = useCallback(() => {
     if (unmounted.current) return
@@ -63,6 +100,10 @@ export function useCollab(docId: string): {
         case 'INIT': {
           const wireSnapshot = msg.snapshot as Parameters<typeof fromWireDoc>[0] | null
           const wireOps = (msg.ops as Parameters<typeof fromWire>[0][]) ?? []
+          const encVer = msg.encryptionVersion as number | undefined
+          if (encVer === 1 && !opKey) {
+            console.warn('[useCollab] INIT has encryptionVersion=1 but opKey not set yet')
+          }
           manager.initFromSnapshot(
             wireSnapshot ? fromWireDoc(wireSnapshot) : null,
             wireOps.map(fromWire),
@@ -79,18 +120,18 @@ export function useCollab(docId: string): {
           break
         }
         case 'PRESENCE': {
-          const clientId = msg.clientId as string | undefined
-          if (!clientId) break
+          const cid = msg.clientId as string | undefined
+          if (!cid) break
           const charId = (msg.charId as string | null) ?? null
           const color = (msg.color as string) ?? '#888888'
           const name = (msg.name as string) ?? ''
           setCursors(prev => {
             if (charId === null) {
               const next = { ...prev }
-              delete next[clientId]
+              delete next[cid]
               return next
             }
-            return { ...prev, [clientId]: { charId, color, name } }
+            return { ...prev, [cid]: { charId, color, name } }
           })
           break
         }
@@ -112,7 +153,7 @@ export function useCollab(docId: string): {
         setStatus('offline')
       }
     }
-  }, [docId, manager])
+  }, [docId, manager, opKey])
 
   useEffect(() => {
     unmounted.current = false
