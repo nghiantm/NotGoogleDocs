@@ -96,11 +96,19 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
   }
 
   return (
-    <div style={s.container}>
-      <div style={s.card}>
-        <h2 style={s.title}>Safe Text</h2>
+    <div style={s.page}>
+      <div style={s.hero}>
+        <h1 style={s.title}>Safe Text</h1>
         <p style={s.tagline}>Your text. Protected.</p>
-        <p style={s.subtitle}>Real-time collaborative notepad. Free, no ads, no login.</p>
+        <ul style={s.features}>
+          <li>Type any name — find it again anytime, it's yours.</li>
+          <li>Set a password to encrypt it. Access from anywhere.</li>
+          <li>Real-time collaborative editing, multiple people at once.</li>
+          <li>Simple. Fast. Free. No ads.</li>
+        </ul>
+      </div>
+
+      <div style={s.card}>
         <form onSubmit={handleSubmit} style={s.form}>
           <div style={s.inputRow}>
             <span style={s.slash}>/</span>
@@ -120,37 +128,71 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
             {loading ? 'Checking…' : 'Open →'}
           </button>
         </form>
-        <p style={s.hint}>
-          Type any name to create or open that document — no account, no registration.
-          Set a password and your password never reaches the server; we only ever see
-          ciphertext, so we can't decrypt your text even if we wanted to. If you forget
-          the password, it's gone — there's no recovery.
-        </p>
+      </div>
+
+      <div style={s.safety}>
+        <h2 style={s.safetyTitle}>Why it's safe</h2>
+        <ul style={s.safetyList}>
+          <li>
+            <strong>Your password never reaches our server.</strong> The encryption key is
+            derived entirely in your browser — we only ever see ciphertext, so we
+            couldn't decrypt your text even if we wanted to.
+          </li>
+          <li>
+            <strong>Minimum personal information stored.</strong> No email, no username,
+            no account. Just a document name, a password verifier, and encrypted content.
+          </li>
+          <li>
+            <strong>No ads, no tracking.</strong> No analytics, no third-party cookies,
+            nothing sold.
+          </li>
+          <li>
+            <strong>No login sessions.</strong> Close the tab and you're done — nothing
+            lingers.
+          </li>
+          <li>
+            <strong>If you forget the password, it's gone.</strong> That's the tradeoff
+            for us never being able to read it either — there's no recovery.
+          </li>
+        </ul>
       </div>
     </div>
   )
 }
 
 const s: Record<string, React.CSSProperties> = {
-  container: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100vh',
+  page: {
+    minHeight: '100vh',
     background: '#fafafa',
     fontFamily: 'sans-serif',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    padding: '64px 20px 48px',
+    gap: 40,
+  },
+  hero: { maxWidth: 480, textAlign: 'center' },
+  title: { margin: '0 0 6px', fontSize: 32, fontWeight: 700, color: '#1a1a1a', letterSpacing: '-0.5px' },
+  tagline: { margin: '0 0 24px', fontSize: 15, fontWeight: 600, color: '#22a06b' },
+  features: {
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 1.5,
   },
   card: {
     background: '#fff',
     border: '1px solid #e8e8e8',
     borderRadius: 8,
-    padding: '32px 40px',
+    padding: '28px 36px',
     minWidth: 340,
     boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
   },
-  title: { margin: '0 0 6px', fontSize: 22, fontWeight: 700, color: '#1a1a1a' },
-  tagline: { margin: '0 0 4px', fontSize: 14, fontWeight: 600, color: '#22a06b' },
-  subtitle: { margin: '0 0 20px', fontSize: 13, color: '#888' },
   form: { display: 'flex', flexDirection: 'column', gap: 12 },
   inputRow: {
     display: 'flex',
@@ -169,7 +211,6 @@ const s: Record<string, React.CSSProperties> = {
     fontFamily: 'monospace',
   },
   error: { margin: 0, fontSize: 13, color: '#c9372c', fontWeight: 500 },
-  hint: { margin: '20px 0 0', fontSize: 12, lineHeight: 1.5, color: '#999' },
   button: {
     padding: '8px 16px',
     background: '#1a1a1a',
@@ -179,5 +220,24 @@ const s: Record<string, React.CSSProperties> = {
     fontSize: 14,
     cursor: 'pointer',
     fontWeight: 600,
+  },
+  safety: { maxWidth: 560, width: '100%' },
+  safetyTitle: {
+    margin: '0 0 16px',
+    fontSize: 18,
+    fontWeight: 700,
+    color: '#1a1a1a',
+    textAlign: 'center',
+  },
+  safetyList: {
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 14,
+    fontSize: 13,
+    lineHeight: 1.6,
+    color: '#555',
   },
 }
