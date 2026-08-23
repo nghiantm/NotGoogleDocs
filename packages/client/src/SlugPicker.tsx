@@ -98,7 +98,7 @@ export default function SlugPicker({ initialSlug, onComplete, onLegacy }: Props)
   return (
     <div style={s.container}>
       <div style={s.card}>
-        <h2 style={s.title}>NotGoogleDocs</h2>
+        <h2 style={s.title}>Safe Text</h2>
         <p style={s.tagline}>Your text. Protected.</p>
         <p style={s.subtitle}>Real-time collaborative notepad. Free, no ads, no login.</p>
         <form onSubmit={handleSubmit} style={s.form}>

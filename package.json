@@ -1,5 +1,5 @@
 {
-  "name": "collab-editor",
+  "name": "safe-text",
   "private": true,
   "workspaces": ["packages/*"],
   "packageManager": "bun@1.1.0",

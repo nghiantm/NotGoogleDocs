@@ -1,4 +1,4 @@
-app = "collab-editor-server"
+app = "safe-text-server"
 primary_region = "iad"
 
 [build]

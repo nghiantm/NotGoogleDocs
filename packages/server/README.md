@@ -40,7 +40,7 @@ fly deploy --config packages/server/fly.toml
 **4. Verify**
 
 ```bash
-curl https://collab-editor-server.fly.dev/health
+curl https://safe-text-server.fly.dev/health
 # {"ok":true}
 ```
 

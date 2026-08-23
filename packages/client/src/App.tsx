@@ -87,7 +87,7 @@ function EditorApp({ docId }: { docId: string }) {
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
       }}>
         <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: '-0.3px', color: '#1a1a1a' }}>
-          NotGoogleDocs
+          Safe Text
         </span>
         {opKey && (
           <span style={{ marginLeft: 8, fontSize: 11, color: '#22a06b', fontWeight: 600 }}>
