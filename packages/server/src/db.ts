@@ -78,6 +78,13 @@ export class Database {
     }
   }
 
+  async resolveSlugToId(slug: string): Promise<string | null> {
+    const rows = await this.sql<DbRow[]>`
+      SELECT id FROM documents WHERE slug = ${slug}
+    `
+    return rows[0]?.id as string ?? null
+  }
+
   async getDocumentMetaBySlug(slug: string): Promise<DocumentMetadata | null> {
     const rows = await this.sql<DbRow[]>`
       SELECT slug, salt, kdf_iterations, verifier, encryption_version, created_at

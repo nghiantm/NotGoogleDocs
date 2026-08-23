@@ -12,6 +12,15 @@ const rooms = new Rooms()
 
 const allowedOrigins = (process.env.CORS_ORIGIN ?? '*').split(',').map(o => o.trim())
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// documents.id (UUID) is the real key everywhere in the DB layer, but slug-based
+// (encrypted) docs are addressed by documents.slug on the wire — resolve here once.
+async function resolveDocId(idOrSlug: string): Promise<string | null> {
+  if (UUID_RE.test(idOrSlug)) return idOrSlug
+  return db.resolveSlugToId(idOrSlug)
+}
+
 function corsHeaders(origin: string | null) {
   const allowOrigin = allowedOrigins.includes('*')
     ? '*'
@@ -43,7 +52,8 @@ const server = Bun.serve<WSData>({
     }
 
     if (url.pathname.startsWith('/doc/')) {
-      const docId = url.pathname.slice(5)
+      const docId = await resolveDocId(url.pathname.slice(5))
+      if (!docId) return new Response('Document not found', { status: 404, headers: corsHeaders(origin) })
       const clientId = url.searchParams.get('clientId') ?? crypto.randomUUID()
       if (server.upgrade(req, { data: { docId, clientId } })) return new Response(null)
       return new Response('WebSocket upgrade failed', { status: 400 })
@@ -60,7 +70,8 @@ const server = Bun.serve<WSData>({
 
     const opsMatch = url.pathname.match(/^\/docs\/([^/]+)\/ops$/)
     if (method === 'GET' && opsMatch) {
-      const docId = opsMatch[1]
+      const docId = await resolveDocId(opsMatch[1])
+      if (!docId) return jsonResponse([], 200, origin)
       const limit = Math.min(parseInt(url.searchParams.get('limit') ?? '1000'), 5000)
       const offset = parseInt(url.searchParams.get('offset') ?? '0')
       const wireOps = await loadPage(docId, db, limit, offset)
