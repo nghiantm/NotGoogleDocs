@@ -6,6 +6,7 @@ interface WebSocketLike {
 
 interface RoomEntry {
   ws: WebSocketLike
+  clientId: string
   color: string
   name: string
   cursor: string | null
@@ -22,40 +23,44 @@ function hashColor(clientId: string): string {
   return COLORS[Math.abs(h) % COLORS.length]
 }
 
+// Rooms are keyed by connId (one per WebSocket connection), not clientId —
+// clientId comes from localStorage and is shared by every tab in a browser
+// profile, so keying by it collapses multiple tabs into one broadcast slot.
 export class Rooms {
   private rooms = new Map<string, Map<string, RoomEntry>>()
 
-  join(docId: string, clientId: string, ws: WebSocketLike): void {
+  join(docId: string, connId: string, clientId: string, ws: WebSocketLike): void {
     if (!this.rooms.has(docId)) this.rooms.set(docId, new Map())
-    this.rooms.get(docId)!.set(clientId, {
+    this.rooms.get(docId)!.set(connId, {
       ws,
+      clientId,
       color: hashColor(clientId),
       name: '',
       cursor: null,
     })
   }
 
-  leave(docId: string, clientId: string): void {
+  leave(docId: string, connId: string): void {
     const room = this.rooms.get(docId)
     if (!room) return
-    room.delete(clientId)
+    room.delete(connId)
     if (room.size === 0) this.rooms.delete(docId)
   }
 
-  broadcast(docId: string, excludeClientId: string, message: string): void {
+  broadcast(docId: string, excludeConnId: string, message: string): void {
     const room = this.rooms.get(docId)
     if (!room) return
-    for (const [cid, entry] of room) {
-      if (cid !== excludeClientId) entry.ws.send(message)
+    for (const [connId, entry] of room) {
+      if (connId !== excludeConnId) entry.ws.send(message)
     }
   }
 
-  getColor(docId: string, clientId: string): string {
-    return this.rooms.get(docId)?.get(clientId)?.color ?? '#999999'
+  getColor(docId: string, connId: string): string {
+    return this.rooms.get(docId)?.get(connId)?.color ?? '#999999'
   }
 
-  updatePresence(docId: string, clientId: string, cursor: string | null, name: string): void {
-    const entry = this.rooms.get(docId)?.get(clientId)
+  updatePresence(docId: string, connId: string, cursor: string | null, name: string): void {
+    const entry = this.rooms.get(docId)?.get(connId)
     if (entry) {
       entry.cursor = cursor
       entry.name = name
@@ -66,8 +71,8 @@ export class Rooms {
     const room = this.rooms.get(docId)
     if (!room) return {}
     const result: Record<string, CursorState> = {}
-    for (const [clientId, entry] of room) {
-      result[clientId] = { charId: entry.cursor, color: entry.color, name: entry.name }
+    for (const entry of room.values()) {
+      result[entry.clientId] = { charId: entry.cursor, color: entry.color, name: entry.name }
     }
     return result
   }

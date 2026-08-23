@@ -5,7 +5,7 @@ import { load, loadPage } from './loader.js'
 import { log } from './log.js'
 import { maybeCompact } from './compaction.js'
 
-type WSData = { docId: string; clientId: string }
+type WSData = { docId: string; clientId: string; connId: string }
 
 const db = new Database()
 const rooms = new Rooms()
@@ -55,7 +55,8 @@ const server = Bun.serve<WSData>({
       const docId = await resolveDocId(url.pathname.slice(5))
       if (!docId) return new Response('Document not found', { status: 404, headers: corsHeaders(origin) })
       const clientId = url.searchParams.get('clientId') ?? crypto.randomUUID()
-      if (server.upgrade(req, { data: { docId, clientId } })) return new Response(null)
+      const connId = crypto.randomUUID()
+      if (server.upgrade(req, { data: { docId, clientId, connId } })) return new Response(null)
       return new Response('WebSocket upgrade failed', { status: 400 })
     }
 
@@ -112,9 +113,9 @@ const server = Bun.serve<WSData>({
 
   websocket: {
     async open(ws) {
-      const { docId, clientId } = ws.data
-      rooms.join(docId, clientId, ws)
-      log.info('connection.open', { docId, clientId })
+      const { docId, clientId, connId } = ws.data
+      rooms.join(docId, connId, clientId, ws)
+      log.info('connection.open', { docId, clientId, connId })
       try {
         const initData = await load(docId, db)
         ws.send(JSON.stringify({ type: 'INIT', ...initData }))
@@ -124,7 +125,7 @@ const server = Bun.serve<WSData>({
     },
 
     async message(ws, raw) {
-      const { docId, clientId } = ws.data
+      const { docId, clientId, connId } = ws.data
       try {
         const text = typeof raw === 'string' ? raw : raw.toString()
         const msg = JSON.parse(text)
@@ -134,7 +135,7 @@ const server = Bun.serve<WSData>({
           const seq = await db.nextSeq(docId)
           await db.persistOp(docId, op, seq)
           log.info('op.persisted', { docId, clientId, seq: seq.toString() })
-          rooms.broadcast(docId, clientId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
+          rooms.broadcast(docId, connId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
           ws.send(JSON.stringify({ type: 'ACK', seq: seq.toString() }))
           setImmediate(() => maybeCompact(docId, db))
 
@@ -144,7 +145,7 @@ const server = Bun.serve<WSData>({
             const seq = await db.nextSeq(docId)
             await db.persistOp(docId, op, seq)
             log.info('op.persisted', { docId, clientId, seq: seq.toString() })
-            rooms.broadcast(docId, clientId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
+            rooms.broadcast(docId, connId, JSON.stringify({ type: 'OP', op: toWire({ ...op, seq }) }))
             ws.send(JSON.stringify({ type: 'ACK', seq: seq.toString() }))
           }
           setImmediate(() => maybeCompact(docId, db))
@@ -157,12 +158,12 @@ const server = Bun.serve<WSData>({
         } else if (msg.type === 'PRESENCE') {
           const charId = (msg.charId as string | null) ?? null
           const name = (msg.name as string) ?? ''
-          rooms.updatePresence(docId, clientId, charId, name)
-          rooms.broadcast(docId, clientId, JSON.stringify({
+          rooms.updatePresence(docId, connId, charId, name)
+          rooms.broadcast(docId, connId, JSON.stringify({
             type: 'PRESENCE',
             clientId,
             charId,
-            color: rooms.getColor(docId, clientId),
+            color: rooms.getColor(docId, connId),
             name,
           }))
         }
@@ -173,17 +174,17 @@ const server = Bun.serve<WSData>({
     },
 
     close(ws) {
-      const { docId, clientId } = ws.data
-      const color = rooms.getColor(docId, clientId)
-      rooms.broadcast(docId, clientId, JSON.stringify({
+      const { docId, clientId, connId } = ws.data
+      const color = rooms.getColor(docId, connId)
+      rooms.broadcast(docId, connId, JSON.stringify({
         type: 'PRESENCE',
         clientId,
         charId: null,
         color,
         name: '',
       }))
-      rooms.leave(docId, clientId)
-      log.info('connection.close', { docId, clientId })
+      rooms.leave(docId, connId)
+      log.info('connection.close', { docId, clientId, connId })
     },
   },
 })
