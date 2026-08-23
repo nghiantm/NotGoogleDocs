@@ -81,4 +81,24 @@ describe('OperationBuffer', () => {
     expect(released[0]).toBe(blockedOp)
     expect(buf.size()).toBe(0)
   })
+
+  it('drain releases a chain in one call, not just its first link', () => {
+    const vc = new VectorClock()
+    const buf = new OperationBuffer()
+
+    // op3 depends on op2 depends on op1; only op1 is ready against the
+    // current vc. A single classify pass would release op1 alone and leave
+    // op2/op3 stuck until an unrelated op happened to trigger another drain.
+    const op1 = makeOp('client-a', 1n, null)
+    const op2 = makeOp('client-a', 2n, makeCharId('client-a', 1n))
+    const op3 = makeOp('client-a', 3n, makeCharId('client-a', 2n))
+
+    buf.add(op3)
+    buf.add(op2)
+    buf.add(op1)
+
+    const released = buf.drain(vc)
+    expect(released).toEqual([op1, op2, op3])
+    expect(buf.size()).toBe(0)
+  })
 })

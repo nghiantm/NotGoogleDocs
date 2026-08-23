@@ -145,6 +145,13 @@ export class CRDTManager {
   initFromSnapshot(snapshot: SerializedDoc | null, ops: Operation[]): void {
     if (snapshot) {
       this.doc = Document.deserialize(snapshot)
+      // Compaction folds ops into the snapshot without a trace in `ops`, so
+      // without this the vc never marks those clientId/clock pairs as seen —
+      // any later op whose leftId/rightId points into pre-snapshot history
+      // would then buffer forever, since isReady() can never become true.
+      for (const char of snapshot.chars) {
+        this.vc.update(char.id.clientId, char.id.clock)
+      }
     }
     for (const op of ops) {
       this.applyOp(op)
