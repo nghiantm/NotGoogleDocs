@@ -152,6 +152,7 @@ async function main(): Promise<void> {
       }
     }
     await sql.end({ timeout: 0 })
+    await db.close()
   }
 }
 

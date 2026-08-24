@@ -275,4 +275,8 @@ export class Database {
       ON CONFLICT (doc_id, snapshot_seq) DO NOTHING
     `
   }
+
+  async close(): Promise<void> {
+    await this.sql.end({ timeout: 0 })
+  }
 }
